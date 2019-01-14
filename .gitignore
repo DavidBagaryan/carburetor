@@ -1,0 +1,14 @@
+# IDE .idea
+.idea
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# SQLite3 database files:
+*.db
+*.sqlite3
+*.sqlite
+
+# env
+venv/*
