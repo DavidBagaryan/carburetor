@@ -20,14 +20,12 @@ class Engine:
 
     def init_server_socket(self):
         # socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
-        # if self.server_socket is None:
         self.server_socket = socket.socket()
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind(self.ip_and_port)
         self.server_socket.listen(1)
 
     def set_selector(self):
-        # if self.selector is None:
         self.selector = selectors.DefaultSelector()
         self.selector.register(fileobj=self.server_socket, events=selectors.EVENT_READ, data=self.accept_connection)
 
