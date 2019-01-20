@@ -1,58 +1,72 @@
 import socket
-import selectors
+from select import select
 
 from views import index, blog
 
+URLS = {
+    '/': index,
+    '/blog': blog
+}
 
-class Engine:
-    URLS = {
-        '/': index,
-        '/blog': blog
-    }
+tasks = []
+to_read = {}
+to_write = {}
 
-    selector: selectors.DefaultSelector = None
 
-    def __init__(self, tcp_ip: tuple):
-        self.ip_and_port = tcp_ip
+def server():
+    server_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(('localhost', 5000))
+    server_socket.listen(1)
 
-    def run_server(self):
-        # socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
-        server_socket = socket.socket()
-        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server_socket.bind(self.ip_and_port)
-        server_socket.listen(1)
-
-        self.set_selector(server_socket)
-
-    def set_selector(self, server_socket):
-        self.selector = selectors.DefaultSelector()
-        self.selector.register(fileobj=server_socket, events=selectors.EVENT_READ, data=self.accept_connection)
-
-    def accept_connection(self, server_socket):
+    while True:
+        yield ('read', server_socket)
         client_socket, address = server_socket.accept()
-        print(f'connection from {address}')
-        self.selector.register(fileobj=client_socket, events=selectors.EVENT_READ, data=self.send_message)
 
-    def send_message(self, client_socket):
+        print(f'connection from {address}')
+        tasks.append(client(client_socket))
+
+
+def client(client_socket):
+    while True:
+        yield ('read', client_socket)
         request = client_socket.recv(4096)
-        if request:
+
+        if not request:
+            break
+        else:
             response = Response(request)
             output = response.generate_response()
+
+            yield ('write', client_socket)
             client_socket.send(output)
-        else:
-            self.selector.unregister(client_socket)
-            client_socket.close()
 
-    def event_loop(self):
-        while True:
-            event = self.selector.select()  # (key, event)
-            for key, _ in event:
-                print(key.data)
-                key.data(key.fileobj)
+    client_socket.close()
 
-    def run(self):
-        self.run_server()
-        self.event_loop()
+
+def event_loop():
+    while any([tasks, to_read, to_write]):
+        while not tasks:
+            ready_to_read, ready_to_write, _ = select(to_read, to_write, [])
+
+            for sock in ready_to_read:
+                tasks.append(to_read.pop(sock))
+
+            for sock in ready_to_write:
+                tasks.append(to_write.pop(sock))
+
+        try:
+            task = tasks.pop(0)
+
+            reason, sock = next(task)
+
+            if reason == 'read':
+                to_read[sock] = task
+            if reason == 'write':
+                to_write[sock] = task
+
+        except StopIteration:
+            print('DONE!')
 
 
 class Response:
@@ -93,7 +107,7 @@ class Response:
 
         if not self.method == 'GET':
             return Response.METHOD_NOT_ALLOWED
-        if self.url not in Engine.URLS:
+        if self.url not in URLS:
             return Response.PAGE_NOT_FOUND
 
         return Response.STATUS_OK
@@ -106,11 +120,11 @@ class Response:
         elif code == 405:
             result = bad_request.format(code, 'method not allowed')
         else:
-            result = Engine.URLS[self.url]()
+            result = URLS[self.url]()
 
         return result
 
 
 if __name__ == '__main__':
-    engine = Engine(('localhost', 5000))
-    engine.run()
+    tasks.append(server())
+    event_loop()
